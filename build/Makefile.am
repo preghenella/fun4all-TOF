@@ -10,6 +10,7 @@ AM_LDFLAGS = \
 AM_CPPFLAGS = \
   -I$(includedir) \
   -I$(OFFLINE_MAIN)/include \
+  -I$(OFFLINE_MAIN)/include/eigen3 \
   -I$(ROOTSYS)/include
 
 pkginclude_HEADERS = \
@@ -28,25 +29,11 @@ libtofreco_la_LDFLAGS = \
   -L$(libdir) \
   -L$(OFFLINE_MAIN)/lib \
   -lfun4all \
-  -lg4detectors_io \
-  -lphg4hit
-
-
-################################################
-# linking tests
-
-noinst_PROGRAMS = \
-  testexternals
-
-testexternals_SOURCES = testexternals.C
-testexternals_LDADD = libtofreco.la
-
-testexternals.C:
-	echo "//*** this is a generated file. Do not commit, do not edit" > $@
-	echo "int main()" >> $@
-	echo "{" >> $@
-	echo "  return 0;" >> $@
-	echo "}" >> $@
+  -lphool \
+  -lphgeom \
+  -lphfield \
+  -lPHGenFit \
+  -lg4trackfastsim
 
 # Rule for generating table CINT dictionaries.
 %_Dict.cc: %.h %LinkDef.h
