@@ -1,7 +1,6 @@
 #include "TOFReco.h"
 
 #include <fun4all/Fun4AllReturnCodes.h>
-#include <fun4all/Fun4AllHistoManager.h>
 
 #include <phool/PHCompositeNode.h>
 #include <phool/getClass.h>
@@ -22,11 +21,14 @@
 #include <GenFit/RKTrackRep.h>
 #include <GenFit/MeasuredStateOnPlane.h>
 
+#include "TFile.h"
+#include "TTree.h"
 #include "TH1F.h"
 #include "TH2F.h"
 
-TOFReco::TOFReco(const std::string& name)
+TOFReco::TOFReco(const std::string& name, const std::string &oname)
   : SubsysReco(name)
+  , mFileName(oname)
 {
 }
 
@@ -36,6 +38,8 @@ TOFReco::~TOFReco()
 
 int TOFReco::Init(PHCompositeNode *topNode)
 {
+
+#if 0
   auto geo = PHGeomUtility::GetTGeoManager(topNode);
   auto field = PHFieldUtility::GetFieldMapNode(nullptr, topNode);
   auto fitter = PHGenFit::Fitter::getInstance(geo, field, "DafRef", "RKTrackRep", false);
@@ -43,23 +47,35 @@ int TOFReco::Init(PHCompositeNode *topNode)
     std::cout << "Cannot find PHGenFit::Fitter" << std::endl;
     return Fun4AllReturnCodes::ABORTRUN;
   }
+#endif
 
+  treeInit();
   histoInit();
   return Fun4AllReturnCodes::EVENT_OK;
 }
 
+void TOFReco::treeInit()
+{
+  mOutFile = TFile::Open(mFileName.c_str(), "RECREATE");
+  mOutTree = new TTree("tofreco", "TOF reco tree");
+  mOutTree->Branch("N"        , &mOutTracks.N        , "N/I");
+  mOutTree->Branch("charge"   , &mOutTracks.charge   , "charge[N]/I");
+  mOutTree->Branch("chisq"    , &mOutTracks.chisq    , "chisq[N]/F");
+  mOutTree->Branch("ndf"      , &mOutTracks.ndf      , "ndf[N]/I");
+  mOutTree->Branch("p"        , &mOutTracks.p        , "p[N]/F");
+  mOutTree->Branch("pt"       , &mOutTracks.pt       , "pt[N]/F");
+  mOutTree->Branch("eta"      , &mOutTracks.eta      , "eta[N]/F");
+  mOutTree->Branch("phi"      , &mOutTracks.phi      , "phi[N]/F");
+  mOutTree->Branch("dcaxy"    , &mOutTracks.dcaxy    , "dcaxy[N]/F");
+  mOutTree->Branch("dcaz"     , &mOutTracks.dcaz     , "dcaz[N]/F");
+  mOutTree->Branch("time"     , &mOutTracks.time     , "time[N]/F");
+  mOutTree->Branch("length"   , &mOutTracks.length   , "length[N]/F");
+  mOutTree->Branch("_primary" , &mOutTracks._primary , "_primary[N]/O");
+  mOutTree->Branch("_pid"     , &mOutTracks._pid     , "_pid[N]/I");
+}
+
 void TOFReco::histoInit()
 {
-
-  mHistoManager = new Fun4AllHistoManager(Name());
-  mHistoManager->registerHisto( new TH1F("hTime_all"    , "hTime_all"    , 1000 , 0. , 100.) );
-  mHistoManager->registerHisto( new TH1F("hTime_digit"  , "hTime_digit"  , 1000 , 0. , 100.) );
-  mHistoManager->registerHisto( new TH1F("hTime_match"  , "hTime_match"  , 1000 , 0. , 100.) );
-  mHistoManager->registerHisto( new TH2F("hBetaP_match" , "hBetaP_match" , 100, 0. , 10. , 100 , 0.1 , 1.1) );
-
-  mHistoManager->registerHisto( new TH2F("hRecoTrack"   , "hRecoTrack"   , 30 , -1.5 , 1.5 , 100 , 0. , 10.) );
-  mHistoManager->registerHisto( new TH2F("hMatchTrack"  , "hMatchTrack"  , 30 , -1.5 , 1.5 , 100 , 0. , 10.) );
-  
 }
 
 int TOFReco::process_event(PHCompositeNode *topNode)
@@ -86,8 +102,14 @@ int TOFReco::process_event(PHCompositeNode *topNode)
     return Fun4AllReturnCodes::ABORTRUN;
   }
 
+  /** reset **/
+  mOutTracks.N = 0;
+
   process_hits();
   process_tracks();
+
+  /** fill tree **/
+  mOutTree->Fill();
 
   return Fun4AllReturnCodes::EVENT_OK;
 }
@@ -100,21 +122,7 @@ void TOFReco::process_hits()
   for (auto ihit = mHits->getHits().first; ihit != mHits->getHits().second; ++ihit) {
     auto hit = dynamic_cast<PHG4Hit *>(ihit->second);
     if (!hit) continue;
-
-    std::cout << "Edep = " << hit->get_edep() << std::endl;
-    auto trkid = hit->get_trkid();
-    auto particle = mTruth->GetParticle(trkid);
-    std::cout << " PID = " << particle->get_pid() << std::endl;
-
-    if (hit->get_edep() <= 0.) {
-      hit->set_hit_type(0);      
-      continue;
-    }
-
-
-
     detid_hits[hit->get_detid()].push_back(hit);
-    dynamic_cast<TH1F *>(mHistoManager->getHisto("hTime_all"))->Fill(hit->get_t(0));
   }
 
   /** flag detector hits that are not separated enough in time **/
@@ -127,19 +135,22 @@ void TOFReco::process_hits()
     
     auto prev_t = -999.;
     for (const auto &hit : hits.second) {
-      if (hit->get_t(0) - prev_t < 10.) {
+      if (hit->get_t(0) - prev_t < 10.)
 	hit->set_hit_type(0);
-      } else {
-	dynamic_cast<TH1F *>(mHistoManager->getHisto("hTime_digit"))->Fill(hit->get_t(0));
-      }
       prev_t = hit->get_t(0);
     }
-  }
-  
+  }  
 }
 
 void TOFReco::process_tracks()
 {
+
+  TVector3 pos_h;
+  TVector3 pos_i, pos_r, pos_f;
+  TVector3 mom_i, mom_r, mom_f;
+  TMatrixDSym cov_i(6), cov_r(6), cov_f(6);
+  std::unique_ptr<genfit::AbsTrackRep> rep(nullptr);
+  std::unique_ptr<genfit::MeasuredStateOnPlane> sop(nullptr);
 
   /** loop over tracks **/
   for (auto itrack = mTracks->begin(); itrack != mTracks->end(); ++itrack) {
@@ -149,42 +160,60 @@ void TOFReco::process_tracks()
     if (!particle) continue;
     if (!is_track_in_acceptance(track)) continue;
 
-    dynamic_cast<TH2F *>(mHistoManager->getHisto("hRecoTrack"))->Fill(track->get_eta(), track->get_pt());
+    /** add track info **/
+    auto N = mOutTracks.N++;
+    mOutTracks.charge[N] = track->get_charge();
+    mOutTracks.chisq[N] = track->get_chisq();
+    mOutTracks.ndf[N] = track->get_ndf();
+    mOutTracks.p[N] = track->get_p();
+    mOutTracks.pt[N] = track->get_pt();
+    mOutTracks.eta[N] = track->get_eta();
+    mOutTracks.phi[N] = track->get_phi();
+    mOutTracks.dcaxy[N] = track->get_dca3d_xy();
+    mOutTracks.dcaz[N] = track->get_dca3d_z();
+    /** reset TOF info **/
+    mOutTracks.time[N] = 0.;
+    mOutTracks.length[N] = 0.;
+    /** add particle info **/
+    mOutTracks._pid[N] = particle->get_pid();
+    mOutTracks._primary[N] = particle->get_track_id() > 0;
     
     /** get last track state **/
     auto istate = --track->end_states();
     auto state = istate->second; 
     if (!state) continue;
     
-    /** 
-     ** propagate close to TOF 
-     **/
-
     /** get state info **/      
-    TVector3 _pos(state->get_x(), state->get_y(), state->get_z());
-    TVector3 _mom(state->get_px(), state->get_py(), state->get_pz());
-    TMatrixDSym _cov(6);
+    auto pidguess = track->get_charge() * 211;
+    auto length_i = state->get_pathlength();
+    pos_i.SetXYZ(state->get_x(), state->get_y(), state->get_z());
+    mom_i.SetXYZ(state->get_px(), state->get_py(), state->get_pz());
     for (int i = 0; i < 6; ++i)
       for (int j = 0; j < 6; ++j)
-	_cov[i][j] = state->get_error(i, j);
-    auto _length = state->get_pathlength();
+	cov_i[i][j] = state->get_error(i, j);
 
-#if 0
-    
-    /** extrapolate track **/
+    /** 
+     ** propagate to average TOF radius
+     ** this is a dummy step to help rejecting
+     ** hits that are too far from the track
+     **/
+
+    rep.reset(new genfit::RKTrackRep(pidguess));
+    sop.reset(new genfit::MeasuredStateOnPlane(rep.get()));    
+    sop->setPosMomCov(pos_i, mom_i, cov_i);
     try {
-      _length += rep->extrapolateToCylinder(*sop, 85.);
+      rep->extrapolateToCylinder(*sop, 85.); // this is not working properly, do not understand why
     }
     catch(...) {
       continue;
     }
+    sop->getPosMomCov(pos_r, mom_r, cov_r);
 
-#endif
-    
-    /** get state info **/
-    TVector3 pos, mom;
-    TMatrixDSym cov(6);
-    //    sop->getPosMomCov(pos, mom, cov);
+    /** 
+     ** propagate to all TOF hit planes 
+     ** (so far is to hit point, to be done with plane)
+     ** rejecting hits that are too far away
+     **/
 
     std::vector<std::tuple<PHG4Hit *, float, float>> matchable;
 
@@ -192,30 +221,26 @@ void TOFReco::process_tracks()
     for (auto ihit = mHits->getHits().first; ihit != mHits->getHits().second; ++ihit) {
       auto hit = dynamic_cast<PHG4Hit *>(ihit->second);
       if (!hit) continue;
-      if (hit->get_hit_type() == 0) continue;
-      
-      /** get hit point **/
-      TVector3 pnt(hit->get_x(0), hit->get_y(0), hit->get_z(0));
-      //      if ((pnt - pos).Mag() > 50.) continue;
+      if (hit->get_hit_type() == 0) continue; // not digitised, need to find a better way
+      pos_h.SetXYZ(hit->get_x(0), hit->get_y(0), hit->get_z(0));
 
-      int pidguess = -211;
-      auto rep = std::unique_ptr<genfit::AbsTrackRep>(new genfit::RKTrackRep(pidguess));
-      auto sop = std::unique_ptr<genfit::MeasuredStateOnPlane>(new genfit::MeasuredStateOnPlane(rep.get()));
+      //      if ((pos_h - pos_r).Mag() > 50.) continue; // this is not working, do not understand why
+
+      rep.reset(new genfit::RKTrackRep(pidguess));
+      sop.reset(new genfit::MeasuredStateOnPlane(rep.get()));
 
       /** extrapolate track to hit point **/
-      sop->setPosMomCov(_pos, _mom, _cov);
-      auto length = _length;
+      sop->setPosMomCov(pos_i, mom_i, cov_i);
+      auto length = length_i;
       try {
-	length += rep->extrapolateToPoint(*sop, pnt, false, false);
+	length += rep->extrapolateToPoint(*sop, pos_h, false, false);
       }
       catch(...) {
 	continue;
       }
-      
-      /** get state info **/
-      sop->getPosMomCov(pos, mom, cov);
+      sop->getPosMomCov(pos_f, mom_f, cov_f);
 
-      auto distance = (pos - pnt).Mag();
+      auto distance = (pos_f - pos_h).Mag();
       if (distance > 10.) continue;
 
       matchable.push_back(std::make_tuple(hit, length, distance));
@@ -237,12 +262,10 @@ void TOFReco::process_tracks()
     auto matched = matchable[0];
     auto hit = std::get<0>(matched);
     auto length = std::get<1>(matched);
-    auto beta = length / (hit->get_t(0) * 29.979246);     
     
-    dynamic_cast<TH2F *>(mHistoManager->getHisto("hMatchTrack"))->Fill(track->get_eta(), track->get_pt());
-    dynamic_cast<TH1F *>(mHistoManager->getHisto("hTime_match"))->Fill(hit->get_t(0));
-    dynamic_cast<TH2F *>(mHistoManager->getHisto("hBetaP_match"))->Fill(track->get_p(), beta);
-  
+    mOutTracks.time[N] = hit->get_t(0);
+    mOutTracks.length[N] = length;
+
   }
   
 }
@@ -256,6 +279,8 @@ bool TOFReco::is_track_in_acceptance(SvtxTrack *track)
 
 int TOFReco::End(PHCompositeNode* topNode)
 {
-  mHistoManager->dumpHistos("TOFReco.root", "RECREATE");
+  mOutFile->cd();
+  mOutTree->Write();
+  mOutFile->Close();
   return Fun4AllReturnCodes::EVENT_OK;
 }

@@ -1,1 +1,4 @@
-export LD_LIBRARY_PATH=.:/cvmfs/sphenix.sdcc.bnl.gov/x8664_sl7/release/release_new/new.1/lib:/cvmfs/sphenix.sdcc.bnl.gov/x8664_sl7/opt/sphenix/utils/lib:/cvmfs/sphenix.sdcc.bnl.gov/x8664_sl7/opt/sphenix/core/lib:/cvmfs/sphenix.sdcc.bnl.gov/x8664_sl7/opt/sphenix/core/root-6.16.00/lib:/cvmfs/sphenix.sdcc.bnl.gov/x8664_sl7/opt/sphenix/core/geant4.10.02.p02/lib64:/cvmfs/sphenix.sdcc.bnl.gov/x8664_sl7/opt/sphenix/core/lhapdf-5.9.1/lib:/usr/local/lib64:/usr/lib64:/home/docker/lib:/home/docker/fun4all-TOF/lib
+FUN4ALL_TOFDIR=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+
+export FUN4ALL_TOFDIR
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$FUN4ALL_TOFDIR/lib

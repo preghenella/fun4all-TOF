@@ -36,7 +36,7 @@ libtofreco_la_LDFLAGS = \
   -lg4trackfastsim
 
 # Rule for generating table CINT dictionaries.
-%_Dict.cc: %.h %LinkDef.h
+%_Dict.cc: ../src/%.h ../src/%LinkDef.h
 	rootcint -f $@ @CINTDEFS@ -c $(DEFAULT_INCLUDES) $(AM_CPPFLAGS) $^
 
 clean-local:

@@ -19,3 +19,6 @@ libtofreco.la
 testexternals
 testexternals.C
 testexternals.o
+TOFReco_Dict.cc
+TOFReco_Dict.h
+TOFReco_Dict.lo
