@@ -3,4 +3,5 @@
 include/
 lib/
 data/
-run/
+!run/__TEMPLATE__/*
+run/*
